@@ -1,0 +1,79 @@
+version: '3'
+services:
+  product-service:
+    build: ./productService
+    ports:
+      - "3001:3001"
+    depends_on:
+      - productdb
+    command: ["./wait-for-it.sh", "productdb:5432", "--", "node", "index.js"]
+    networks:
+      - backend
+
+  order-service:
+    build: ./orderService
+    ports:
+      - "3002:3002"
+    depends_on:
+      - orderdb
+    command: ["./wait-for-it.sh", "orderdb:5432", "--", "node", "index.js"]
+    networks:
+      - backend
+
+  customer-service:
+    build: ./customerService
+    ports:
+      - "3003:3003"
+    depends_on:
+      - customerdb
+    command: ["./wait-for-it.sh", "customerdb:5432", "--", "node", "index.js"]
+    networks:
+      - backend
+
+  productdb:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: productdb
+    volumes:
+      - productdb_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    ports:
+      - "5433:5432"
+
+  orderdb:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: orderdb
+    volumes:
+      - orderdb_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    ports:
+      - "5434:5432"
+
+  customerdb:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: customerdb
+    volumes:
+      - customerdb_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    ports:
+      - "5435:5432"
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  productdb_data:
+  orderdb_data:
+  customerdb_data:
