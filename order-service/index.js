@@ -1,70 +1,77 @@
-// order-service/index.js
 import express from 'express';
 import axios from 'axios';
+import rateLimit from 'express-rate-limit';
 import CircuitBreaker from 'opossum';
 import axiosRetry from 'axios-retry';
-import rateLimit from 'express-rate-limit';
 
 const app = express();
 app.use(express.json());
 
+// Rate Limiter
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: 'Too many requests, please try again later.'
+});
+app.use(limiter);
+
 // Retry config
 axiosRetry(axios, {
   retries: 3,
-  retryDelay: retryCount => retryCount * 1000,
-  retryCondition: error => error.response?.status >= 500
+  retryDelay: retryCount => retryCount * 5000, // 5s mỗi lần retry
+  retryCondition: error => error.response?.status >= 500 || error.code === 'ECONNREFUSED'
 });
 
-// Rate limiter
-app.use(rateLimit({
-  windowMs: 60 * 1000,
-  max: 10,
-  message: 'Too many requests to Order Service'
-}));
-
-// Timeout logic
+// Timeout wrapper
 function timeoutPromise(ms) {
   return new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout!')), ms));
 }
 
 // Circuit Breakers
-const paymentBreaker = new CircuitBreaker(() => axios.post('http://localhost:3002/pay'), {
+const paymentBreaker = new CircuitBreaker(() => axios.get('http://localhost:3002/status'), {
   timeout: 3000,
   errorThresholdPercentage: 50,
   resetTimeout: 10000
 });
-const shippingBreaker = new CircuitBreaker(() => axios.post('http://localhost:3004/ship'), {
+const inventoryBreaker = new CircuitBreaker(() => axios.get('http://localhost:3003/status'), {
   timeout: 3000,
   errorThresholdPercentage: 50,
   resetTimeout: 10000
 });
-
+const shippingBreaker = new CircuitBreaker(() => axios.get('http://localhost:3004/status'), {
+  timeout: 3000,
+  errorThresholdPercentage: 50,
+  resetTimeout: 10000
+});
 
 app.post('/order', async (req, res) => {
   try {
     const paymentResult = await Promise.race([
       paymentBreaker.fire(),
-      timeoutPromise(3000)
+      timeoutPromise(20000)
+    ]);
+
+    const inventoryResult = await Promise.race([
+      inventoryBreaker.fire(),
+      timeoutPromise(20000)
     ]);
 
     const shippingResult = await Promise.race([
       shippingBreaker.fire(),
-      timeoutPromise(3000)
+      timeoutPromise(20000)
     ]);
 
     res.status(201).json({
-      message: 'Order created successfully',
+      message: 'Đơn hàng đã được tạo!',
       payment: paymentResult.data,
+      inventory: inventoryResult.data,
       shipping: shippingResult.data
     });
   } catch (err) {
-    res.status(500).json({
-      error: 'Order creation failed',
-      detail: err.message
-    });
+    res.status(500).json({ error: 'Tạo đơn hàng thất bại', detail: err.message });
   }
 });
 
 app.listen(3001, () => {
-  console.log('✅ Order Service running on port 3001');
+  console.log('Order Service chạy ở cổng 3001');
 });
